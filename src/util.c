@@ -67,8 +67,9 @@ int ensure_file(const char *path, bool dir)
 	int fd;
 	struct stat st;
 	if (stat(path, &st)) {
-		fd = dir ? mkdir(path, 0775)
-			: open(path, O_RDONLY | O_CREAT, 0664);
+		// mkdir() returns 0, not a descriptor to close:
+		if (dir) return mkdir(path, 0775) ? -1 : 0;
+		fd = open(path, O_RDONLY | O_CREAT, 0664);
 	} else {
 		if (dir) {
 			if (!S_ISDIR(st.st_mode)) {
