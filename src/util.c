@@ -6,7 +6,12 @@
 #include <string.h>
 #include <stdbool.h>
 #include <sys/stat.h>
+#include <stdlib.h>
 #include <unistd.h>
+#ifdef __APPLE__
+#	include <mach-o/dyld.h>
+#	include <stdint.h>
+#endif
 #ifdef _WIN32
 #	include <direct.h>
 #	include <stdio.h>
@@ -82,6 +87,97 @@ int ensure_file(const char *path, bool dir)
 #endif /* !defined(_WIN32) */
 }
 
+// The folder holding the running executable, or NULL if it can't be found.
+// Set once by set_exe_path().
+static char *exe_dir = NULL;
+
+void set_exe_path(const char *argv0)
+{
+	char *path = NULL, *sep;
+#if defined(_WIN32)
+	char buf[4096];
+	DWORD len = GetModuleFileNameA(NULL, buf, sizeof(buf));
+	if (len > 0 && len < sizeof(buf)) path = str_dup(buf);
+#elif defined(__APPLE__)
+	char buf[4096];
+	uint32_t size = sizeof(buf);
+	if (!_NSGetExecutablePath(buf, &size)) path = str_dup(buf);
+#elif defined(__linux__)
+	char buf[4096];
+	ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+	if (len > 0) {
+		buf[len] = '\0';
+		path = str_dup(buf);
+	}
+#endif
+	// Otherwise, a name typed with a folder in it still says where it is:
+	if (!path && argv0 && strchr(argv0, '/')) path = str_dup(argv0);
+	if (!path) return;
+	sep = strrchr(path, DIRSEP);
+#ifdef _WIN32
+	if (!sep) sep = strrchr(path, '/');
+#endif
+	if (!sep) {
+		free(path);
+		return;
+	}
+	*sep = '\0';
+	free(exe_dir);
+	exe_dir = path;
+}
+
+// Create a directory and any missing parents. 0 is success and -1 failure.
+static int ensure_dirs(const char *path)
+{
+	char *copy = str_dup(path), *p;
+	int ret;
+	for (p = copy + 1; *p; ++p) {
+		if (*p == '/' || *p == DIRSEP) {
+			char c = *p;
+			*p = '\0';
+			ensure_file(copy, true);
+			*p = c;
+		}
+	}
+	ret = ensure_file(copy, true);
+	free(copy);
+	return ret;
+}
+
+// The folder for state and logs of a packaged game (data beside the binary):
+// $XDG_STATE_HOME/ts3d, else ~/.local/state/ts3d, or %LOCALAPPDATA%\ts3d on
+// Windows. NULL if none of those variables is set.
+static char *state_dir(void)
+{
+#ifdef _WIN32
+	char *base = getenv("LOCALAPPDATA");
+	if (base && *base) return mid_cat(base, DIRSEP, "ts3d");
+#else
+	char *base = getenv("XDG_STATE_HOME");
+	if (base && *base) return mid_cat(base, DIRSEP, "ts3d");
+	base = getenv("HOME");
+	if (base && *base) {
+		char *local = mid_cat(base, DIRSEP, ".local/state");
+		char *dir = mid_cat(local, DIRSEP, "ts3d");
+		free(local);
+		return dir;
+	}
+#endif
+	return NULL;
+}
+
+// The "data" folder beside the executable, or NULL if there is none.
+static char *data_beside_exe(void)
+{
+	struct stat st;
+	char *data;
+	if (!exe_dir) return NULL;
+	data = mid_cat(exe_dir, DIRSEP, "data");
+	if (!stat(data, &st) && S_ISDIR(st.st_mode)) return data;
+	free(data);
+	return NULL;
+}
+
 char *default_file(const char *name, const char *env)
 {
 #ifdef _WIN32
@@ -96,6 +192,19 @@ char *default_file(const char *name, const char *env)
 	if (env_root) {
 		dot_dir = str_dup(env_root);
 	} else {
+		// A portable install: the data beside the executable, and the
+		// state and log in the per-user state folder.
+		char *data = data_beside_exe();
+		if (data) {
+			if (!strcmp(name, "data")) return data;
+			free(data);
+			if ((dot_dir = state_dir())) {
+				if (!ensure_dirs(dot_dir))
+					path = mid_cat(dot_dir, DIRSEP, name);
+				free(dot_dir);
+				return path;
+			}
+		}
 		char *storage_dir = getenv(env_storage_dir);
 		if (storage_dir) {
 			dot_dir = mid_cat(storage_dir, DIRSEP, ts3d_dir);

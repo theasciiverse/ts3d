@@ -40,8 +40,10 @@ static void print_help(const char *progname)
 "the $TS3D_LOG variable if it is set. Again, options override this.\n"
 "\n"
 "* There are exceptions. If you are using this on Windows, the default\n"
-"storage location is instead %AppData%\\ts3d. In packaged versions of this\n"
-"software, the default state and data locations may also be different.");
+"storage location is instead %AppData%\\ts3d. If $TS3D_ROOT is unset and a\n"
+"\"data\" directory sits beside the executable, that is the data, and the\n"
+"state and log go in $XDG_STATE_HOME/ts3d (else ~/.local/state/ts3d, or\n"
+"%LOCALAPPDATA%\\ts3d on Windows).");
 }
 
 static void print_version(const char *progname)
@@ -190,6 +192,7 @@ int main(int argc, char *argv[])
 		print_usage(progname, stderr);
 		goto end;
 	}
+	set_exe_path(argc > 0 ? argv[0] : NULL);
 	if (!data_dir) data_dir = default_file("data", "TS3D_DATA");
 	if (!data_dir || ensure_file(data_dir, true)) {
 		fprintf(stderr,

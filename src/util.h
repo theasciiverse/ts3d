@@ -34,6 +34,10 @@ int ensure_file(const char *path, bool dir);
 // The path of the file itself is not checked for existence, but the directory
 // path is unless the path was provided by the environment variable.
 char *default_file(const char *name, const char *env);
+// Find the folder of the running executable (argv0 is the fallback when the
+// system can't say), so that default_file() can find game data placed beside
+// it. Call before default_file().
+void set_exe_path(const char *argv0);
 
 // Call setenv() with the same arguments if it is supported, or fail otherwise.
 int try_setenv(const char *name, const char *value, int overwrite);
