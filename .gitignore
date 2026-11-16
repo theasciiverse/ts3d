@@ -7,3 +7,4 @@ tests
 tests.dSYM
 tests.log
 ts3d.6.gz
+build/
